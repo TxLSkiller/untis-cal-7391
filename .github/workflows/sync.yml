@@ -36,11 +36,31 @@ jobs:
         run: |
           printf '[user]\nserver = "ssges-hamm.webuntis.com"\nusername = "%s"\npassword = "%s"\nschool = "%s"\nclass = ""\n' "$U_USER" "$U_PASS" "$U_SCHOOL" > config.toml
 
-      - name: Run WebUntis script
+            - name: Run WebUntis script
         run: |
           mkdir -p public
           python main.py config.toml
-          mv webuntis-timetable.ics public/timetable.ics
+          python - << 'EOF'
+          import re
+          from datetime import datetime, timedelta, timezone
+          from zoneinfo import ZoneInfo
+
+          with open("webuntis-timetable.ics", "r", encoding="utf-8") as f:
+              content = f.read()
+
+          def fix_time(match):
+              prefix, dt_str, z_flag = match.groups()
+              dt = datetime.strptime(dt_str, "%Y%m%dT%H%M%S")
+              if z_flag == "Z":
+                  dt = dt.replace(tzinfo=timezone.utc).astimezone(ZoneInfo("Europe/Berlin"))
+              else:
+                  dt = dt + timedelta(hours=1)
+              return f"{prefix}:{dt.strftime('%Y%m%dT%H%M%S')}"
+
+          content = re.sub(r"(DTSTART|DTEND):(\d{8}T\d{6})(Z?)", fix_time, content)
+          with open("public/timetable.ics", "w", encoding="utf-8") as f:
+              f.write(content)
+          EOF
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
