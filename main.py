@@ -28,13 +28,13 @@ if "error" in res:
 person_id = res["result"]["personId"]
 person_type = res["result"]["personType"]
 
-# 2. Aktuellen Wochenplan inklusive Vertretungen & Veranstaltungen abrufen
+# 2. Persönlichen Wochenplan abrufen
 cal = Calendar()
 tz = ZoneInfo("Europe/Berlin")
 today = datetime.now(tz).date()
+seen_ids = set()
 
-# Aktuelle Woche und nächste Woche abrufen
-for week_offset in [0, 7]:
+for week_offset in:
     target_date = (today + timedelta(days=week_offset)).strftime("%Y-%m-%d")
     tt_url = f"https://{server}/WebUntis/api/public/timetable/weekly/data?elementType={person_type}&elementId={person_id}&date={target_date}&formatId=1"
     data = s.get(tt_url).json()
@@ -44,10 +44,19 @@ for week_offset in [0, 7]:
     periods = result.get("data", {}).get("elementPeriods", {}).get(str(person_id), [])
 
     for p in periods:
+        # Doppelte Perioden-IDs überspringen
+        if p["id"] in seen_ids:
+            continue
+        seen_ids.add(p["id"])
+
         # Ausgefallene Stunden überspringen
         if p.get("cellState") == "CANCEL":
             continue
 
+        # Prüfen, ob die Stunde wirklich für das persönliche Schülerprofil gedacht ist
+        # (Stunden, die nur an der allgemeinen Klasse hängen, haben oft kein student-Element oder specific student-tags)
+        el_types = [el["type"] for el in p.get("elements", [])]
+        
         date_str = str(p["date"])
         start_str = f"{p['startTime']:04d}"
         end_str = f"{p['endTime']:04d}"
@@ -55,16 +64,22 @@ for week_offset in [0, 7]:
         dt_start = datetime.strptime(f"{date_str}{start_str}", "%Y%m%d%H%M").replace(tzinfo=tz)
         dt_end = datetime.strptime(f"{date_str}{end_str}", "%Y%m%d%H%M").replace(tzinfo=tz)
 
-        # Fächer, Räume und Veranstaltungstexte sammeln
         subjects = []
         rooms = []
+        teachers = []
         for el in p.get("elements", []):
             el_info = elements.get(el["id"], {})
             name = el_info.get("name", "")
-            if el["type"] == 3 and name:
+            if el["type"] == 2 and name:
+                teachers.append(name)
+            elif el["type"] == 3 and name:
                 subjects.append(name)
             elif el["type"] == 4 and name:
                 rooms.append(name)
+
+        # Wenn kein Lehrer oder kein Fach zugewiesen ist, handelt es sich oft um einen reinen Klassen-Platzhalter
+        if not subjects and not (p.get("lessonText") or p.get("substText")):
+            continue
 
         title = ", ".join(subjects) if subjects else (p.get("lessonText") or p.get("substText") or "Veranstaltung")
         if p.get("cellState") == "SUBSTITUTION":
@@ -76,7 +91,12 @@ for week_offset in [0, 7]:
         e.end = dt_end
         if rooms:
             e.location = ", ".join(rooms)
-        desc_parts = [x for x in [p.get("lessonText"), p.get("substText"), p.get("info")] if x]
+        desc_parts = [x for x in [
+            f"Lehrkraft: {', '.join(teachers)}" if teachers else "",
+            p.get("lessonText"),
+            p.get("substText"),
+            p.get("info")
+        ] if x]
         if desc_parts:
             e.description = " | ".join(desc_parts)
         e.uid = f"{p['id']}-{date_str}-{start_str}@webuntis-sync"
