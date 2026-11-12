@@ -36,7 +36,7 @@ jobs:
         run: |
           printf '[user]\nserver = "ssges-hamm.webuntis.com"\nusername = "%s"\npassword = "%s"\nschool = "%s"\nclass = ""\n' "$U_USER" "$U_PASS" "$U_SCHOOL" > config.toml
 
-            - name: Run WebUntis script
+      - name: Run WebUntis script
         run: |
           mkdir -p public
           python main.py config.toml
