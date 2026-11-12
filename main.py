@@ -34,7 +34,7 @@ tz = ZoneInfo("Europe/Berlin")
 today = datetime.now(tz).date()
 
 # Aktuelle Woche und nächste Woche abrufen
-for week_offset in:
+for week_offset in [0, 7]:
     target_date = (today + timedelta(days=week_offset)).strftime("%Y-%m-%d")
     tt_url = f"https://{server}/WebUntis/api/public/timetable/weekly/data?elementType={person_type}&elementId={person_id}&date={target_date}&formatId=1"
     data = s.get(tt_url).json()
