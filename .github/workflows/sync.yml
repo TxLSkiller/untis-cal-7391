@@ -1,0 +1,52 @@
+name: WebUntis Sync
+
+on:
+  schedule:
+    - cron: '0 */2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install webuntis ics toml requests
+
+      - name: Create config.toml
+        env:
+          U_USER: ${{ secrets.UNTIS_USER }}
+          U_PASS: ${{ secrets.UNTIS_PASSWORD }}
+          U_SCHOOL: ${{ secrets.UNTIS_SCHOOL }}
+        run: |
+          printf '[user]\nserver = "ssges-hamm.webuntis.com"\nusername = "%s"\npassword = "%s"\nschool = "%s"\nclass = ""\n' "$U_USER" "$U_PASS" "$U_SCHOOL" > config.toml
+
+      - name: Run WebUntis script
+        run: |
+          mkdir -p public
+          python main.py config.toml
+          mv webuntis-timetable.ics public/timetable.ics
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: 'public'
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
