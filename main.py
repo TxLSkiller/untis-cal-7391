@@ -1,120 +1,86 @@
-from ics import Calendar, Event
-import webuntis as wu
-import datetime
 import sys
 import toml
 import requests
-import json
+from datetime import datetime, timedelta
+from ics import Calendar, Event
+from zoneinfo import ZoneInfo
 
-class Config:
-    def __init__(self, server, username, password, schoolclass, school):
-        self.server = server
-        self.username = username
-        self.password = password
-        self.schoolclass = schoolclass
-        self.school = school
+config = toml.load(sys.argv[1])["user"]
+server = config["server"]
+school = config["school"]
+username = config["username"]
+password = config["password"]
 
+s = requests.Session()
+s.headers.update({"User-Agent": "Mozilla/5.0"})
 
-def getFirstDay(schoolyear):
-    """Return current monday"""
-    
-    return schoolyear.start
+# 1. Login in WebUntis
+login_url = f"https://{server}/WebUntis/jsonrpc.do?school={school}"
+res = s.post(login_url, json={
+    "id": "1", "method": "authenticate",
+    "params": {"user": username, "password": password, "client": "web"},
+    "jsonrpc": "2.0"
+}).json()
 
-def getLastDay(schoolyear):
-    """Return last day of current schoolyear"""
-    
-    return schoolyear.end
+if "error" in res:
+    raise Exception(f"Login fehlgeschlagen: {res['error']}")
 
-def getCurrentSchoolyear(session):
-    year = session.schoolyears()
-    return year.filter(id=year.current.id)[0]
+person_id = res["result"]["personId"]
+person_type = res["result"]["personType"]
 
-def getStudentId(id, config):
-    session = requests.Session()
-    
-    req = session.get('https://{}/WebUntis/api/public/timetable/weekly/pageconfig?type=5'.format(config.server),
-                cookies = {'JSESSIONID': id})
-    
-    req_json = json.loads(req.text)
-    
-    return req_json['data']['elements'][0]['id']
+# 2. Aktuellen Wochenplan inklusive Vertretungen & Veranstaltungen abrufen
+cal = Calendar()
+tz = ZoneInfo("Europe/Berlin")
+today = datetime.now(tz).date()
 
+# Aktuelle Woche und nächste Woche abrufen
+for week_offset in:
+    target_date = (today + timedelta(days=week_offset)).strftime("%Y-%m-%d")
+    tt_url = f"https://{server}/WebUntis/api/public/timetable/weekly/data?elementType={person_type}&elementId={person_id}&date={target_date}&formatId=1"
+    data = s.get(tt_url).json()
 
+    result = data.get("data", {}).get("result", {})
+    elements = {e["id"]: e for e in result.get("data", {}).get("elements", [])}
+    periods = result.get("data", {}).get("elementPeriods", {}).get(str(person_id), [])
 
-def getTimetable(student, schoolyear, session):
-    """Return timetable object of webuntis api"""
-    
-    return session.timetable(student=student, start=getFirstDay(schoolyear), end=getLastDay(schoolyear));
+    for p in periods:
+        # Ausgefallene Stunden überspringen
+        if p.get("cellState") == "CANCEL":
+            continue
 
-def getCalendar(session, timetable):
-    """Return Calendar object with events(subjects) from webuntis"""
+        date_str = str(p["date"])
+        start_str = f"{p['startTime']:04d}"
+        end_str = f"{p['endTime']:04d}"
 
-    calendar = Calendar()
-   
-    for i in range(len(timetable)):
-        subject = timetable[i].subjects
-        start = timetable[i].start
-        end = timetable[i].end
-        
-        if len(subject) > 0:
-            event = createEvent(subject[0], start, end)
-            calendar.events.add(event)
+        dt_start = datetime.strptime(f"{date_str}{start_str}", "%Y%m%d%H%M").replace(tzinfo=tz)
+        dt_end = datetime.strptime(f"{date_str}{end_str}", "%Y%m%d%H%M").replace(tzinfo=tz)
 
-    return calendar
+        # Fächer, Räume und Veranstaltungstexte sammeln
+        subjects = []
+        rooms = []
+        for el in p.get("elements", []):
+            el_info = elements.get(el["id"], {})
+            name = el_info.get("name", "")
+            if el["type"] == 3 and name:
+                subjects.append(name)
+            elif el["type"] == 4 and name:
+                rooms.append(name)
 
-def createEvent(subject, start, end):
-    """Return Event object"""
+        title = ", ".join(subjects) if subjects else (p.get("lessonText") or p.get("substText") or "Veranstaltung")
+        if p.get("cellState") == "SUBSTITUTION":
+            title = f"Vertretung: {title}"
 
-    event = Event()
-    event.name = str(subject)
-    event.begin = start + datetime.timedelta(hours=-2)
-    event.end = end + datetime.timedelta(hours=-2)
+        e = Event()
+        e.name = title
+        e.begin = dt_start
+        e.end = dt_end
+        if rooms:
+            e.location = ", ".join(rooms)
+        desc_parts = [x for x in [p.get("lessonText"), p.get("substText"), p.get("info")] if x]
+        if desc_parts:
+            e.description = " | ".join(desc_parts)
+        e.uid = f"{p['id']}-{date_str}-{start_str}@webuntis-sync"
+        cal.events.add(e)
 
-    return event
-
-def createICSFile(calendar, filename):
-    with open(filename, 'w') as f:
-        f.writelines(calendar)
-
-def readTOMLFile(filename):
-    """Return Config object"""
-    
-    toml_string = ""
-    with open(filename, 'r') as f:
-        toml_string = toml_string + f.read()
-
-    parsed_toml = toml.loads(toml_string)
-    user = parsed_toml["user"]
-
-    return Config(user["server"],user["username"],user["password"],
-                  user["class"],user["school"])
-
-def getSession(config):
-    """Return Session object"""
-    
-    session = wu.Session(
-        server = config.server,
-        username = config.username,
-        password = config.password,
-        school = config.school,
-        useragent = 'webuntis-ics-calendar'
-    )
-    
-    return session
-
-def main():
-    config = readTOMLFile(sys.argv[1])
-    
-    session = getSession(config)
-    session.login()
-    
-    schoolyear = getCurrentSchoolyear(session)
-    student = getStudentId(session.config['jsessionid'], config)
-    
-    timetable = getTimetable(student, schoolyear, session)
-    calendar = getCalendar(session, timetable)
-    createICSFile(calendar, "webuntis-timetable.ics")
-           
-    session.logout()
-
-main()
+with open("webuntis-timetable.ics", "w", encoding="utf-8") as f:
+    f.writelines(cal.serialize_iter())
