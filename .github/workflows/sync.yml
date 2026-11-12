@@ -40,7 +40,8 @@ jobs:
         run: |
           mkdir -p public
           python main.py config.toml
-          python -c "import re; from datetime import datetime, timedelta, timezone; from zoneinfo import ZoneInfo; c = open('webuntis-timetable.ics', encoding='utf-8').read(); f = lambda m: f'{m.group(1)}:{(datetime.strptime(m.group(2), \"%Y%m%dT%H%M%S\").replace(tzinfo=timezone.utc).astimezone(ZoneInfo(\"Europe/Berlin\")) if m.group(3)==\"Z\" else datetime.strptime(m.group(2), \"%Y%m%dT%H%M%S\")+timedelta(hours=1)).strftime(\"%Y%m%dT%H%M%S\")}'; open('public/timetable.ics', 'w', encoding='utf-8').write(re.sub(r'(DTSTART|DTEND):(\d{8}T\d{6})(Z?)', f, c))"
+          python -c "import re; from datetime import datetime, timedelta, timezone; from zoneinfo import ZoneInfo; c = open('webuntis-timetable.ics', encoding='utf-8').read(); f = lambda m: f'{m.group(1)};TZID=Europe/Berlin:{(datetime.strptime(m.group(2), \"%Y%m%dT%H%M%S\").replace(tzinfo=timezone.utc).astimezone(ZoneInfo(\"Europe/Berlin\")) if m.group(3)==\"Z\" else datetime.strptime(m.group(2), \"%Y%m%dT%H%M%S\")+timedelta(hours=1)).strftime(\"%Y%m%dT%H%M%S\")}'; open('public/timetable.ics', 'w', encoding='utf-8').write(re.sub(r'(DTSTART|DTEND):(\d{8}T\d{6})(Z?)', f, c))"
+
 
 
       - name: Setup Pages
