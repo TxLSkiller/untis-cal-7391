@@ -7,6 +7,9 @@ on:
     - cron: '0 */2 * * *'
   workflow_dispatch:
 
+concurrency:
+  group: webuntis-sync-pages
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -16,6 +19,9 @@ permissions:
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -41,7 +47,6 @@ jobs:
           mkdir -p public
           python main.py config.toml
           mv webuntis-timetable.ics public/timetable.ics
-
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
