@@ -2,9 +2,10 @@ name: WebUntis Sync
 
 on:
   schedule:
-    - cron: '17 4 * * 1-5'
-    - cron: '43 5 * * 1-5'
-    - cron: '23 */2 * * *'
+    # 06:00 Uhr deutsche Zeit (MEZ / Winterzeit = 05:00 UTC)
+    - cron: '0 5 * * *'
+    # 07:00 bis 23:00 Uhr deutsche Zeit alle 2 Stunden (06:00 bis 22:00 UTC)
+    - cron: '0 6-22/2 * * *'
   workflow_dispatch:
 
 concurrency:
